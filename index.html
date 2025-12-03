@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<title>Ticket à Gratter - Deluxe</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  body {
+    font-family: "Poppins", Arial, sans-serif;
+    background: linear-gradient(135deg,#ffecd2,#fcb69f);
+    height:100vh;
+    margin:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  #card{
+    width:520px;
+    max-width:95%;
+    background:#fff;
+    border-radius:18px;
+    box-shadow:0 12px 30px rgba(0,0,0,0.15);
+    padding:28px;
+    position:relative;
+    text-align:center;
+  }
+  h1{ margin:0 0 6px; font-size:26px; color:#c0392b; }
+  p.sub{ margin:0 0 18px; color:#555; }
+
+  #container{
+    position:relative;
+    width:460px;
+    max-width:100%;
+    height:200px;
+    margin:auto;
+  }
+
+  #result{
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    z-index:0;
+    font-size:36px;
+    font-weight:700;
+    color:#1f2937;
+    letter-spacing:1px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:100%;
+    height:100%;
+    user-select:none;
+    -webkit-user-select:none;
+    visibility:hidden; /* caché jusqu'à révélation */
+  }
+
+  canvas{
+    position:absolute;
+    top:0;
+    left:0;
+    z-index:1;
+    border-radius:12px;
+    box-shadow:0 6px 18px rgba(0,0,0,0.08) inset;
+    touch-action:none; /* pour éviter le scroll sur mobile pendant le touch */
+  }
+
+  /* petite aide */
+  .hint{ font-size:13px; color:#666; margin-top:12px; }
+</style>
+</head>
+<body>
+
+<div id="card">
+  <h1>🎉 Ticket à Gratter Deluxe</h1>
+  <p class="sub">Gratte pour découvrir ton résultat — souris ou toucher</p>
+
+  <div id="container">
+    <div id="result"></div>
+    <canvas id="scratch" width="460" height="200"></canvas>
+  </div>
+
+  <div class="hint">Astuce : gratte plusieurs fois au même endroit pour révéler.</div>
+</div>
+
+<script>
+/* ---------- configuration ---------- */
+const REVEAL_PERCENT = 0.35; // 35% nécessaire avant de révéler
+const ERASE_RADIUS = 12;     // rayon du "grattoir" (plus petit = plus précis)
+const SAMPLING_STEP = 4;     // pour compter pixels (4 = plus rapide, moins précis)
+
+/* ---------- initialisation du résultat ---------- */
+const resultEl = document.getElementById('result');
+const isWin = Math.random() < 0.5;
+resultEl.textContent = isWin ? "🎉 GAGNÉ !" : "😕 PERDU…";
+
+/* ---------- canvas et couche à gratter ---------- */
+const canvas = document.getElementById('scratch');
+const ctx = canvas.getContext('2d');
+
+// Dessiner une couche argentée réaliste
+function drawScratchLayer(){
+  // gradient argenté
+  const g = ctx.createLinearGradient(0,0,canvas.width,canvas.height);
+  g.addColorStop(0,'#bdbdbd');
+  g.addColorStop(0.5,'#e6e6e6');
+  g.addColorStop(1,'#bdbdbd');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // petite texture: des lignes subtiles pour un effet réaliste
+  ctx.globalAlpha = 0.06;
+  ctx.fillStyle = '#777';
+  for(let i=0;i<100;i++){
+    ctx.fillRect(Math.random()*canvas.width, Math.random()*canvas.height, Math.random()*6, 1);
+  }
+  ctx.globalAlpha = 1;
+  // texte indicatif
+  ctx.fillStyle = "#444";
+  ctx.font = "20px Arial";
+  ctx.fillText("Gratte ici ✦", canvas.width/2 - 60, canvas.height/2 + 6);
+}
+drawScratchLayer();
+
+/* ---------- outils de grattage ---------- */
+let isDrawing = false;
+let lastPos = null;
+
+// Utilise destination-out pour effacer proprement
+ctx.globalCompositeOperation = 'destination-out';
+
+// dessine un cercle effaçant la couche
+function eraseAt(x,y){
+  ctx.beginPath();
+  ctx.arc(x,y,ERASE_RADIUS,0,Math.PI*2);
+  ctx.fill();
+}
+
+// écoute souris
+canvas.addEventListener('mousedown', (e)=>{
+  isDrawing = true;
+  lastPos = getPos(e);
+  eraseAt(lastPos.x, lastPos.y);
+  checkRevealThrottled();
+});
+window.addEventListener('mouseup', ()=> isDrawing = false);
+canvas.addEventListener('mousemove', (e)=>{
+  if(!isDrawing) return;
+  const p = getPos(e);
+  // dessiner plusieurs petits cercles entre lastPos et p pour continuité
+  drawLineErase(lastPos, p);
+  lastPos = p;
+  checkRevealThrottled();
+});
+
+// écoute tactile (mobile)
+canvas.addEventListener('touchstart', (e)=>{
+  e.preventDefault();
+  isDrawing = true;
+  const t = e.touches[0];
+  lastPos = getTouchPos(t);
+  eraseAt(lastPos.x, lastPos.y);
+  checkRevealThrottled();
+});
+canvas.addEventListener('touchmove', (e)=>{
+  e.preventDefault();
+  if(!isDrawing) return;
+  const t = e.touches[0];
+  const p = getTouchPos(t);
+  drawLineErase(lastPos, p);
+  lastPos = p;
+  checkRevealThrottled();
+});
+canvas.addEventListener('touchend', ()=> isDrawing = false);
+canvas.addEventListener('touchcancel', ()=> isDrawing = false);
+
+function getPos(e){
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+function getTouchPos(t){
+  const rect = canvas.getBoundingClientRect();
+  return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+}
+
+// dessine une ligne d'effacement entre deux points (pour continuité)
+function drawLineErase(a,b){
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx,dy);
+  const steps = Math.max(1, Math.floor(dist / (ERASE_RADIUS/2)));
+  for(let i=0;i<=steps;i++){
+    const x = a.x + dx * (i/steps);
+    const y = a.y + dy * (i/steps);
+    eraseAt(x,y);
+  }
+}
+
+/* ---------- calcul du pourcentage gratté ---------- */
+let lastCheck = 0;
+function computeRevealedPercent(){
+  const w = canvas.width;
+  const h = canvas.height;
+  const image = ctx.getImageData(0,0,w,h);
+  let cleared = 0;
+  // on parcourt avec un pas pour être plus rapide
+  for(let y=0; y<h; y += SAMPLING_STEP){
+    for(let x=0; x<w; x += SAMPLING_STEP){
+      const idx = (y * w + x) * 4;
+      const alpha = image.data[idx + 3]; // alpha
+      if(alpha === 0) cleared++;
+    }
+  }
+  const totalSampled = (Math.ceil(h / SAMPLING_STEP)) * (Math.ceil(w / SAMPLING_STEP));
+  return cleared / totalSampled;
+}
+
+function checkReveal(){
+  const percent = computeRevealedPercent();
+  if(percent >= REVEAL_PERCENT){
+    // révéler : on rend la couche grattable inactive et révèle le résultat
+    canvas.style.transition = 'opacity 0.6s ease';
+    canvas.style.opacity = '0.08';
+    canvas.style.pointerEvents = 'none';
+    resultEl.style.visibility = 'visible';
+  }
+}
+
+// throttling pour pas calculer trop souvent (perf)
+function checkRevealThrottled(){
+  const now = Date.now();
+  if(now - lastCheck > 150){
+    lastCheck = now;
+    requestAnimationFrame(checkReveal);
+  }
+}
+
+/* ---------- redimension responsive (si besoin) ---------- */
+// si tu veux garder proportions sur petits écrans
+(function responsiveCanvas(){
+  const container = document.getElementById('container');
+  function fit(){
+    const rect = container.getBoundingClientRect();
+    const scaleX = rect.width / canvas.width;
+    const scale = Math.min(1, scaleX);
+    canvas.style.width = Math.round(canvas.width * scale) + 'px';
+    canvas.style.height = Math.round(canvas.height * scale) + 'px';
+  }
+  window.addEventListener('resize', fit);
+  fit();
+})();
+</script>
+
+</body>
+</html>
